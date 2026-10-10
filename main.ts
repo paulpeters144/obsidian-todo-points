@@ -6,13 +6,22 @@ import {
 	WorkspaceLeaf,
 	App,
 } from "obsidian";
+import {
+	Decoration,
+	DecorationSet,
+	EditorView,
+	MatchDecorator,
+	ViewPlugin,
+	ViewUpdate,
+} from "@codemirror/view";
 
 const VIEW_TYPE_TODO_POINTS = "todo-points-view";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const TASK_RE = /^(\s*[-*]\s+)\[( |x|X)\]\s+(.*)$/;
-const POINTS_RE = /\bp:(\d+)\b/i;
+const POINTS_RE = /#p(\d+)\b/i;
+const TAG_RE = /#p\d+\b/gi;
 
 const MONTHS: Record<string, number> = {
 	jan: 1, january: 1,
@@ -110,6 +119,27 @@ interface Bucket {
 	isCurrent: boolean;
 }
 
+const tagDecorator = new MatchDecorator({
+	regexp: TAG_RE,
+	decoration: Decoration.mark({ class: "todo-points-tag" }),
+});
+
+class TagHighlighter {
+	decorations: DecorationSet;
+
+	constructor(view: EditorView) {
+		this.decorations = tagDecorator.createDeco(view);
+	}
+
+	update(update: ViewUpdate) {
+		this.decorations = tagDecorator.updateDeco(update, this.decorations);
+	}
+}
+
+const tagHighlighter = ViewPlugin.fromClass(TagHighlighter, {
+	decorations: (v) => v.decorations,
+});
+
 export default class TodoPointsPlugin extends Plugin {
 	settings: TodoPointsSettings;
 	tasks: TaskItem[] = [];
@@ -134,6 +164,16 @@ export default class TodoPointsPlugin extends Plugin {
 		});
 
 		this.addSettingTab(new TodoPointsSettingTab(this.app, this));
+
+		this.registerEditorExtension(tagHighlighter);
+
+		this.registerMarkdownPostProcessor((el) => {
+			el.querySelectorAll("a.tag").forEach((tag) => {
+				if (/^#p\d+$/i.test(tag.getText())) {
+					tag.addClass("todo-points-tag");
+				}
+			});
+		});
 
 		const onChange = () => {
 			this.scanTasks().then(() => this.refreshViews());
@@ -479,7 +519,7 @@ class TodoPointsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Lists folder")
 			.setDesc(
-				"Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a p:N token anywhere in the line. A date (year, month, and day) on a line above a list sets the completion day for its tasks."
+				"Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). A date (year, month, and day) on a line above a list sets the completion day for its tasks."
 			)
 			.addText((text) =>
 				text

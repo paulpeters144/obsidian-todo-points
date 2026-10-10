@@ -11,9 +11,12 @@ An Obsidian community plugin written in TypeScript. It extends Obsidian's
 This plugin is a read-only dashboard. It reads todos from markdown checkbox
 lists in a folder of the vault (default `example-lists/`, configurable in
 settings) and shows a canvas bar chart of points completed by day (last 7),
-week (last 8), or month (last 6). Points come from a `p:N` token anywhere in
-the task line (e.g. `- [ ] Fix bug p:5` is worth 5 points; any non-negative
-integer is allowed). A completed task is a `[x]` checkbox. The completion day
+week (last 8), or month (last 6). Points come from a `#pN` tag anywhere in
+the task line (e.g. `- [ ] Fix bug #p5` is worth 5 points; any non-negative
+integer is allowed). These `#pN` tags are highlighted in a soft green both in
+the editor (via a CodeMirror `ViewPlugin` + `MatchDecorator`) and in reading
+view (via a Markdown post processor), styled by the `.todo-points-tag` class
+in `styles.css`. A completed task is a `[x]` checkbox. The completion day
 comes from a date (containing a year, month, and day) on a line above the
 task; supported formats include `2026-10-10`, `10/10/2026`, `10-10-2026`,
 `10.10.2026`, `October 10, 2026`, and `10 October 2026` (with optional
