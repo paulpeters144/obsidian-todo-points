@@ -133,7 +133,7 @@ export class TodoPointsView extends ItemView {
 				},
 			].concat(
 				projects.map((p) => ({
-					name: p.name as string | null,
+					name: p.name,
 					label: p.name,
 					total: p.total,
 					color: projectColor(p.name),

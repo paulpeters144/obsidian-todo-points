@@ -1,4 +1,10 @@
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+	App,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	SettingDefinitionItem,
+} from "obsidian";
 import {
 	Decoration,
 	DecorationSet,
@@ -97,12 +103,12 @@ export default class TodoPointsPlugin extends Plugin {
 		);
 
 		this.addRibbonIcon("list-todo", "Todo points", () => {
-			this.activateView();
+			void this.activateView();
 		});
 
 		this.addCommand({
-			id: "open-todo-points",
-			name: "Open todo points",
+			id: "open",
+			name: "Open dashboard",
 			callback: () => this.activateView(),
 		});
 
@@ -161,7 +167,7 @@ export default class TodoPointsPlugin extends Plugin {
 			});
 			leaf = rightLeaf;
 		}
-		workspace.revealLeaf(leaf);
+		await workspace.revealLeaf(leaf);
 	}
 }
 
@@ -171,6 +177,31 @@ class TodoPointsSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: TodoPointsPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: "Lists folder",
+				desc: "Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks.",
+				control: {
+					type: "folder",
+					key: "listFolder",
+					placeholder: "example-lists",
+				},
+			},
+		];
+	}
+
+	getControlValue(key: string): unknown {
+		if (key === "listFolder") return this.plugin.getListFolder();
+		return undefined;
+	}
+
+	setControlValue(key: string, value: unknown): void | Promise<void> {
+		if (key === "listFolder") {
+			return this.plugin.setListFolder(String(value).trim());
+		}
 	}
 
 	display(): void {
