@@ -1,11 +1,4 @@
-import {
-	ItemView,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	WorkspaceLeaf,
-	App,
-} from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 import {
 	Decoration,
 	DecorationSet,
@@ -14,132 +7,22 @@ import {
 	ViewPlugin,
 	ViewUpdate,
 } from "@codemirror/view";
+import { SettingsAccess } from "./src/access.settings";
+import { VaultAccess } from "./src/access.vault";
+import {
+	AppEvent,
+	AppManager,
+	AppRequest,
+	AppResponse,
+} from "./src/manager.app";
+import {
+	ClientMessage,
+	ClientUpdate,
+	TodoPointsView,
+	VIEW_TYPE_TODO_POINTS,
+} from "./src/client.view";
 
-const VIEW_TYPE_TODO_POINTS = "todo-points-view";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-const TASK_RE = /^(\s*[-*]\s+)\[( |x|X)\]\s+(.*)$/;
-const POINTS_RE = /#p(\d+)\b/i;
 const TAG_RE = /#p\d+\b/gi;
-const ALL_TAGS_RE = /#([\w][\w/-]*)/g;
-
-const MONTHS: Record<string, number> = {
-	jan: 1, january: 1,
-	feb: 2, february: 2,
-	mar: 3, march: 3,
-	apr: 4, april: 4,
-	may: 5,
-	jun: 6, june: 6,
-	jul: 7, july: 7,
-	aug: 8, august: 8,
-	sep: 9, september: 9,
-	oct: 10, october: 10,
-	nov: 11, november: 11,
-	dec: 12, december: 12,
-};
-
-interface TaskItem {
-	filePath: string;
-	line: number;
-	points: number;
-	projects: string[];
-	done: boolean;
-	completedAt: number | null;
-}
-
-interface TodoPointsSettings {
-	listFolder: string;
-}
-
-const DEFAULT_SETTINGS: TodoPointsSettings = {
-	listFolder: "example-lists",
-};
-
-type Period = "day" | "week" | "month";
-
-function startOfDay(t: number): number {
-	const d = new Date(t);
-	d.setHours(0, 0, 0, 0);
-	return d.getTime();
-}
-
-function startOfWeek(t: number): number {
-	const d = new Date(t);
-	d.setHours(0, 0, 0, 0);
-	const offset = (d.getDay() + 6) % 7;
-	return d.getTime() - offset * DAY_MS;
-}
-
-function startOfMonth(t: number): number {
-	const d = new Date(t);
-	return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-}
-
-function toTimestamp(year: number, month: number, day: number): number | null {
-	if (month < 1 || month > 12) return null;
-	if (day < 1 || day > 31) return null;
-	return new Date(year, month - 1, day, 12).getTime();
-}
-
-function parseDate(text: string): number | null {
-	const iso = text.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-	if (iso) {
-		return toTimestamp(Number(iso[1]), Number(iso[2]), Number(iso[3]));
-	}
-
-	const named = text.match(
-		/([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i
-	);
-	if (named) {
-		const m = MONTHS[named[1].toLowerCase()];
-		if (m) return toTimestamp(Number(named[3]), m, Number(named[2]));
-	}
-
-	const named2 = text.match(
-		/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})/i
-	);
-	if (named2) {
-		const m = MONTHS[named2[2].toLowerCase()];
-		if (m) return toTimestamp(Number(named2[3]), m, Number(named2[1]));
-	}
-
-	const numeric = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
-	if (numeric) {
-		const a = Number(numeric[1]);
-		const b = Number(numeric[2]);
-		if (a > 12) return toTimestamp(Number(numeric[3]), b, a);
-		return toTimestamp(Number(numeric[3]), a, b);
-	}
-
-	return null;
-}
-
-interface BucketSegment {
-	project: string;
-	value: number;
-}
-
-interface Bucket {
-	label: string;
-	total: number;
-	isCurrent: boolean;
-	segments: BucketSegment[];
-}
-
-interface ChartData {
-	buckets: Bucket[];
-	projects: { name: string; total: number }[];
-}
-
-function projectColor(project: string): string {
-	if (project === "other") return "hsl(0, 0%, 55%)";
-	let h = 0;
-	for (let i = 0; i < project.length; i++) {
-		h = (h * 31 + project.charCodeAt(i)) >>> 0;
-	}
-	return `hsl(${h % 360}, 65%, 55%)`;
-}
 
 const tagDecorator = new MatchDecorator({
 	regexp: TAG_RE,
@@ -162,17 +45,55 @@ const tagHighlighter = ViewPlugin.fromClass(TagHighlighter, {
 	decorations: (v) => v.decorations,
 });
 
+function toAppRequest(message: ClientMessage): AppRequest {
+	switch (message.type) {
+		case "query":
+			return { type: "getChart", period: message.period };
+	}
+}
+
+function toClientUpdate(response: AppResponse): ClientUpdate | null {
+	switch (response.type) {
+		case "chart":
+			return {
+				type: "render",
+				stats: response.stats,
+				chart: response.chart,
+			};
+		default:
+			return null;
+	}
+}
+
+function appEventToClientUpdate(event: AppEvent): ClientUpdate {
+	switch (event.type) {
+		case "dataChanged":
+			return { type: "refresh" };
+	}
+}
+
 export default class TodoPointsPlugin extends Plugin {
-	settings: TodoPointsSettings;
-	tasks: TaskItem[] = [];
+	private appManager!: AppManager;
+	private listFolder = "example-lists";
 
 	async onload() {
-		await this.loadSettings();
-		await this.scanTasks();
+		this.appManager = new AppManager({
+			settingsAccess: new SettingsAccess(this),
+			vaultAccess: new VaultAccess(this),
+		});
+		this.appManager.onEvent((event) => {
+			this.broadcast(appEventToClientUpdate(event));
+		});
+
+		const ready = await this.appManager.dispatch({ type: "init" });
+		if (ready.type === "ready") this.listFolder = ready.folder;
 
 		this.registerView(
 			VIEW_TYPE_TODO_POINTS,
-			(leaf) => new TodoPointsView(leaf, this)
+			(leaf) =>
+				new TodoPointsView(leaf, (message) =>
+					this.handleClientMessage(message)
+				)
 		);
 
 		this.addRibbonIcon("list-todo", "Todo points", () => {
@@ -196,13 +117,36 @@ export default class TodoPointsPlugin extends Plugin {
 				}
 			});
 		});
+	}
 
-		const onChange = () => {
-			this.scanTasks().then(() => this.refreshViews());
-		};
-		this.registerEvent(this.app.vault.on("modify", onChange));
-		this.registerEvent(this.app.vault.on("create", onChange));
-		this.registerEvent(this.app.vault.on("delete", onChange));
+	private async handleClientMessage(
+		message: ClientMessage
+	): Promise<ClientUpdate | null> {
+		const response = await this.appManager.dispatch(
+			toAppRequest(message)
+		);
+		return toClientUpdate(response);
+	}
+
+	private broadcast(update: ClientUpdate) {
+		for (const leaf of this.app.workspace.getLeavesOfType(
+			VIEW_TYPE_TODO_POINTS
+		)) {
+			const view = leaf.view;
+			if (view instanceof TodoPointsView) view.receive(update);
+		}
+	}
+
+	getListFolder(): string {
+		return this.listFolder;
+	}
+
+	async setListFolder(folder: string): Promise<void> {
+		const response = await this.appManager.dispatch({
+			type: "setFolder",
+			folder,
+		});
+		if (response.type === "folderSaved") this.listFolder = response.folder;
 	}
 
 	async activateView() {
@@ -218,467 +162,6 @@ export default class TodoPointsPlugin extends Plugin {
 			leaf = rightLeaf;
 		}
 		workspace.revealLeaf(leaf);
-	}
-
-	async loadSettings() {
-		const loaded = (await this.loadData()) as Partial<TodoPointsSettings> | null;
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-
-	inFolder(path: string): boolean {
-		const folder = this.settings.listFolder.replace(/^\/+|\/+$/g, "");
-		if (folder === "") return true;
-		return path === folder || path.startsWith(folder + "/");
-	}
-
-	async scanTasks() {
-		const files = this.app.vault
-			.getMarkdownFiles()
-			.filter((f) => this.inFolder(f.path));
-		const tasks: TaskItem[] = [];
-		for (const file of files) {
-			const content = await this.app.vault.cachedRead(file);
-			const lines = content.split("\n");
-			let currentDate: number | null = null;
-			lines.forEach((raw, i) => {
-				const m = raw.match(TASK_RE);
-				if (!m) {
-					const d = parseDate(raw);
-					if (d !== null) currentDate = d;
-					return;
-				}
-			const body = m[3];
-			const done = m[2].toLowerCase() === "x";
-			const pm = body.match(POINTS_RE);
-			const points = pm ? parseInt(pm[1], 10) : 0;
-			const projects: string[] = [];
-			for (const tag of body.match(ALL_TAGS_RE) ?? []) {
-				const name = tag.slice(1).toLowerCase();
-				if (/^p\d+$/i.test(name)) continue;
-				if (!projects.includes(name)) projects.push(name);
-			}
-			tasks.push({
-				filePath: file.path,
-				line: i,
-				points,
-				projects,
-				done,
-				completedAt: done ? currentDate ?? file.stat.mtime : null,
-			});
-			});
-		}
-		this.tasks = tasks;
-	}
-
-	doneTasks(): TaskItem[] {
-		return this.tasks.filter((t) => t.done);
-	}
-
-	pointsBetween(from: number, to: number): number {
-		return this.doneTasks()
-			.filter(
-				(t) =>
-					t.completedAt !== null &&
-					t.completedAt >= from &&
-					t.completedAt < to
-			)
-			.reduce((sum, t) => sum + t.points, 0);
-	}
-
-	chartData(period: Period): ChartData {
-		const now = Date.now();
-		const ranges: {
-			label: string;
-			start: number;
-			end: number;
-			isCurrent: boolean;
-		}[] = [];
-		if (period === "day") {
-			const today = startOfDay(now);
-			for (let i = 6; i >= 0; i--) {
-				const start = today - i * DAY_MS;
-				ranges.push({
-					label: new Date(start).toLocaleDateString(undefined, {
-						weekday: "short",
-					}),
-					start,
-					end: start + DAY_MS,
-					isCurrent: i === 0,
-				});
-			}
-		} else if (period === "week") {
-			const thisWeek = startOfWeek(now);
-			for (let i = 7; i >= 0; i--) {
-				const start = thisWeek - i * 7 * DAY_MS;
-				ranges.push({
-					label: new Date(start).toLocaleDateString(undefined, {
-						month: "short",
-						day: "numeric",
-					}),
-					start,
-					end: start + 7 * DAY_MS,
-					isCurrent: i === 0,
-				});
-			}
-		} else {
-			const d = new Date(startOfMonth(now));
-			for (let i = 5; i >= 0; i--) {
-				const start = new Date(
-					d.getFullYear(),
-					d.getMonth() - i,
-					1
-				).getTime();
-				const end = new Date(
-					d.getFullYear(),
-					d.getMonth() - i + 1,
-					1
-				).getTime();
-				ranges.push({
-					label: new Date(start).toLocaleDateString(undefined, {
-						month: "short",
-					}),
-					start,
-					end,
-					isCurrent: i === 0,
-				});
-			}
-		}
-
-		const perRange = ranges.map(() => new Map<string, number>());
-		const projectTotals = new Map<string, number>();
-		for (const t of this.doneTasks()) {
-			const at = t.completedAt;
-			if (at === null) continue;
-			ranges.forEach((r, i) => {
-				if (at >= r.start && at < r.end) {
-					const projects =
-						t.projects.length > 0 ? t.projects : ["other"];
-					for (const p of projects) {
-						perRange[i].set(
-							p,
-							(perRange[i].get(p) ?? 0) + t.points
-						);
-						projectTotals.set(
-							p,
-							(projectTotals.get(p) ?? 0) + t.points
-						);
-					}
-				}
-			});
-		}
-
-		const order = [...projectTotals.keys()].sort((a, b) => {
-			if (a === "other") return 1;
-			if (b === "other") return -1;
-			return (
-				(projectTotals.get(b) ?? 0) - (projectTotals.get(a) ?? 0) ||
-				a.localeCompare(b)
-			);
-		});
-
-		const buckets = ranges.map((r, i) => {
-			const segments = order
-				.map((project) => ({
-					project,
-					value: perRange[i].get(project) ?? 0,
-				}))
-				.filter((s) => s.value > 0);
-			return {
-				label: r.label,
-				total: segments.reduce((sum, s) => sum + s.value, 0),
-				isCurrent: r.isCurrent,
-				segments,
-			};
-		});
-
-		const projects = order.map((name) => ({
-			name,
-			total: projectTotals.get(name) ?? 0,
-		}));
-
-		return { buckets, projects };
-	}
-
-	refreshViews() {
-		for (const leaf of this.app.workspace.getLeavesOfType(
-			VIEW_TYPE_TODO_POINTS
-		)) {
-			const view = leaf.view;
-			if (view instanceof TodoPointsView) view.render();
-		}
-	}
-}
-
-class TodoPointsView extends ItemView {
-	plugin: TodoPointsPlugin;
-	private period: Period = "day";
-	private selectedProject: string | null = null;
-	private canvas: HTMLCanvasElement | null = null;
-	private resizeObserver: ResizeObserver | null = null;
-
-	constructor(leaf: WorkspaceLeaf, plugin: TodoPointsPlugin) {
-		super(leaf);
-		this.plugin = plugin;
-	}
-
-	getViewType(): string {
-		return VIEW_TYPE_TODO_POINTS;
-	}
-
-	getDisplayText(): string {
-		return "Todo points";
-	}
-
-	getIcon(): string {
-		return "list-todo";
-	}
-
-	async onOpen() {
-		this.resizeObserver = new ResizeObserver(() => this.drawChart());
-		this.resizeObserver.observe(this.contentEl);
-		await this.plugin.scanTasks();
-		this.render();
-	}
-
-	async onClose() {
-		this.resizeObserver?.disconnect();
-		this.resizeObserver = null;
-	}
-
-	render() {
-		const container = this.contentEl;
-		container.empty();
-		container.addClass("todo-points-container");
-
-		const header = container.createDiv({ cls: "todo-points-header" });
-		header.createEl("h4", { text: "Todo points" });
-
-		const body = container.createDiv({ cls: "todo-points-body" });
-		this.renderStats(body);
-	}
-
-	private renderStats(parent: HTMLElement) {
-		const now = Date.now();
-		const cards = parent.createDiv({ cls: "todo-points-cards" });
-		this.renderCard(cards, "Today", this.plugin.pointsBetween(startOfDay(now), now + 1));
-		this.renderCard(cards, "This week", this.plugin.pointsBetween(startOfWeek(now), now + 1));
-		this.renderCard(cards, "This month", this.plugin.pointsBetween(startOfMonth(now), now + 1));
-
-		const periods = parent.createDiv({ cls: "todo-points-periods" });
-		const options: { period: Period; label: string }[] = [
-			{ period: "day", label: "7 days" },
-			{ period: "week", label: "8 weeks" },
-			{ period: "month", label: "6 months" },
-		];
-		for (const opt of options) {
-			const btn = periods.createEl("button", {
-				cls:
-					"todo-points-period" +
-					(this.period === opt.period ? " is-active" : ""),
-				text: opt.label,
-			});
-			btn.addEventListener("click", () => {
-				this.period = opt.period;
-				this.render();
-			});
-		}
-
-		const chartWrap = parent.createDiv({ cls: "todo-points-chart" });
-		this.canvas = chartWrap.createEl("canvas");
-
-		const { projects } = this.plugin.chartData(this.period);
-		if (
-			this.selectedProject &&
-			!projects.some((p) => p.name === this.selectedProject)
-		) {
-			projects.push({ name: this.selectedProject, total: 0 });
-		}
-		if (projects.length > 0) {
-			const legend = chartWrap.createDiv({ cls: "todo-points-legend" });
-			const allTotal = projects.reduce((sum, p) => sum + p.total, 0);
-			const items = [
-				{
-					name: null as string | null,
-					label: "all",
-					total: allTotal,
-					color: "var(--interactive-accent)",
-				},
-			].concat(
-				projects.map((p) => ({
-					name: p.name as string | null,
-					label: p.name,
-					total: p.total,
-					color: projectColor(p.name),
-				}))
-			);
-			for (const it of items) {
-				const item = legend.createDiv({
-					cls:
-						"todo-points-legend-item" +
-						(this.selectedProject === it.name ? " is-active" : ""),
-				});
-				item.createSpan({
-					cls: "todo-points-legend-dot",
-				}).style.backgroundColor = it.color;
-				item.createSpan({ text: `${it.label} · ${it.total}` });
-				item.addEventListener("click", () => {
-					this.selectedProject =
-						this.selectedProject === it.name ? null : it.name;
-					this.render();
-				});
-			}
-		}
-
-		window.requestAnimationFrame(() => this.drawChart());
-	}
-
-	private renderCard(parent: HTMLElement, label: string, value: number) {
-		const card = parent.createDiv({ cls: "todo-points-card" });
-		card.createDiv({ cls: "todo-points-card-value", text: String(value) });
-		card.createDiv({ cls: "todo-points-card-label", text: label });
-	}
-
-	private drawChart() {
-		const canvas = this.canvas;
-		if (!canvas || !canvas.isConnected) return;
-		const parent = canvas.parentElement;
-		if (!parent) return;
-		const width = parent.clientWidth;
-		const height = 180;
-		if (width <= 0) return;
-
-		const dpr = window.devicePixelRatio || 1;
-		canvas.width = Math.round(width * dpr);
-		canvas.height = Math.round(height * dpr);
-		canvas.style.width = `${width}px`;
-		canvas.style.height = `${height}px`;
-
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-		ctx.scale(dpr, dpr);
-		ctx.clearRect(0, 0, width, height);
-
-		const css = getComputedStyle(canvas);
-		const accent =
-			css.getPropertyValue("--interactive-accent").trim() || "#7c3aed";
-		const muted =
-			css.getPropertyValue("--text-muted").trim() || "#999999";
-		const faint = css.getPropertyValue("--text-faint").trim() || "#666666";
-		const fontFamily = css.getPropertyValue("--font-interface").trim();
-
-		const data = this.plugin.chartData(this.period).buckets;
-		const selected = this.selectedProject;
-		const totals = data.map((b) =>
-			selected
-				? b.segments.find((s) => s.project === selected)?.value ?? 0
-				: b.total
-		);
-		const max = Math.max(...totals, 1);
-
-		const padLeft = 6;
-		const padRight = 6;
-		const padTop = 18;
-		const padBottom = 22;
-		const chartWidth = width - padLeft - padRight;
-		const chartHeight = height - padTop - padBottom;
-		const baseY = padTop + chartHeight;
-
-		ctx.strokeStyle = faint;
-		ctx.lineWidth = 1;
-		ctx.beginPath();
-		ctx.moveTo(padLeft, baseY + 0.5);
-		ctx.lineTo(width - padRight, baseY + 0.5);
-		ctx.stroke();
-
-		const slot = chartWidth / data.length;
-		const barWidth = Math.min(34, slot * 0.6);
-
-		ctx.font = `10px ${fontFamily || "sans-serif"}`;
-		ctx.textAlign = "center";
-
-		data.forEach((b, i) => {
-			const total = totals[i];
-			const cx = padLeft + slot * i + slot / 2;
-			const barHeight = Math.max(
-				total > 0 ? 3 : 0,
-				(total / max) * chartHeight
-			);
-			const y = baseY - barHeight;
-
-			if (barHeight > 0) {
-				ctx.globalAlpha = b.isCurrent ? 1 : 0.55;
-				if (selected) {
-					ctx.fillStyle = projectColor(selected);
-					this.roundRect(
-						ctx,
-						cx - barWidth / 2,
-						y,
-						barWidth,
-						barHeight,
-						3
-					);
-					ctx.fill();
-				} else {
-					let yCursor = baseY;
-					b.segments.forEach((seg, j) => {
-						const segHeight = Math.max(
-							(seg.value / total) * barHeight,
-							1
-						);
-						yCursor -= segHeight;
-						ctx.fillStyle = projectColor(seg.project);
-						if (j === b.segments.length - 1) {
-							this.roundRect(
-								ctx,
-								cx - barWidth / 2,
-								yCursor,
-								barWidth,
-								segHeight,
-								3
-							);
-							ctx.fill();
-						} else {
-							ctx.fillRect(
-								cx - barWidth / 2,
-								yCursor,
-								barWidth,
-								segHeight
-							);
-						}
-					});
-				}
-				ctx.globalAlpha = 1;
-			}
-
-			ctx.fillStyle = muted;
-			ctx.fillText(String(total), cx, y - 5);
-			ctx.fillStyle = b.isCurrent ? accent : faint;
-			ctx.fillText(b.label, cx, baseY + 14);
-		});
-	}
-
-	private roundRect(
-		ctx: CanvasRenderingContext2D,
-		x: number,
-		y: number,
-		w: number,
-		h: number,
-		r: number
-	) {
-		const radius = Math.min(r, h / 2, w / 2);
-		ctx.beginPath();
-		ctx.moveTo(x + radius, y);
-		ctx.lineTo(x + w - radius, y);
-		ctx.arcTo(x + w, y, x + w, y + radius, radius);
-		ctx.lineTo(x + w, y + h);
-		ctx.lineTo(x, y + h);
-		ctx.lineTo(x, y + radius);
-		ctx.arcTo(x, y, x + radius, y, radius);
-		ctx.closePath();
 	}
 }
 
@@ -702,12 +185,9 @@ class TodoPointsSettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("example-lists")
-					.setValue(this.plugin.settings.listFolder)
+					.setValue(this.plugin.getListFolder())
 					.onChange(async (value) => {
-						this.plugin.settings.listFolder = value.trim();
-						await this.plugin.saveSettings();
-						await this.plugin.scanTasks();
-						this.plugin.refreshViews();
+						await this.plugin.setListFolder(value.trim());
 					})
 			);
 	}

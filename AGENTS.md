@@ -5,8 +5,8 @@ Guidance for AI agents and contributors working on this Obsidian plugin.
 ## What this is
 
 An Obsidian community plugin written in TypeScript. It extends Obsidian's
-`Plugin` base class from the `obsidian` package. The source of truth is
-`main.ts`; everything else is build config or metadata.
+`Plugin` base class from the `obsidian` package. The code is split into
+layers (client view → adapter → manager → access); see Project layout below.
 
 This plugin is a read-only dashboard. It reads todos from markdown checkbox
 lists in a folder of the vault (default `example-lists/`, configurable in
@@ -32,9 +32,36 @@ Only the folder setting is persisted with `loadData()`/`saveData()`.
 
 ## Project layout
 
-- `main.ts` — plugin entry point. Exports a default class extending `Plugin`.
-  Also contains the markdown task scanner, the `ItemView` (stats cards +
-  period toggle + canvas chart), and the settings tab.
+The code is organized in layers; each layer only talks to the layer directly
+below it:
+
+- `src/client.view.ts` — the client layer. The `ItemView` (stats cards, period
+  toggle, canvas chart, legend filter). Holds only UI state (period, selected
+  project, last rendered data) and communicates with the rest of the plugin
+  exclusively through messages: it sends `ClientMessage`s (e.g. `query` with a
+  period) and receives `ClientUpdate`s (`render` with stats + chart data, or
+  `refresh` meaning "re-send your query"). Also owns presentation-only helpers
+  like `projectColor`.
+- `main.ts` — the adapter layer and plugin entry point (default export
+  extends `Plugin`). Translates `ClientMessage`s from views into
+  `AppRequest`s for the manager (`toAppRequest`), translates `AppResponse`s
+  back into `ClientUpdate`s (`toClientUpdate`), and pushes manager events to
+  all open views (`appEventToClientUpdate` + `broadcast`). Owns all Obsidian
+  wiring: view registration, ribbon icon, command, settings tab, the
+  `#pN`-tag CodeMirror highlighter, and the reading-view post processor.
+- `src/manager.app.ts` — the single manager (`AppManager`). All business logic:
+  caches the parsed tasks, computes stats and the project-stacked chart data,
+  and handles a message protocol (`AppRequest`: `init`, `getChart`,
+  `setFolder`; `AppResponse`; `AppEvent`: `dataChanged` pushed when the vault
+  or folder setting changes). Contains no Obsidian UI code.
+- `src/access.settings.ts` — access layer: loads/saves the persisted settings
+  (`loadData`/`saveData`).
+- `src/access.vault.ts` — access layer: reads markdown files from the configured
+  folder and registers vault change callbacks.
+- `src/access.tasks.ts` — access layer: parses raw file snapshots into `TaskItem`
+  objects (checkbox match, `#pN` points, project tags, date headers) and
+  holds the shared time helpers (`DAY_MS`, `startOfDay/Week/Month`,
+  `sumPointsBetween`).
 - `styles.css` — view styles, loaded automatically by Obsidian.
 - `main.js` — generated bundle (do not edit; produced by esbuild).
 - `manifest.json` — plugin metadata (id, name, version, minAppVersion, ...).
