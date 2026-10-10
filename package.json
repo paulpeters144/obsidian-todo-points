@@ -1,14 +1,15 @@
 {
 	"name": "todo-points",
 	"version": "1.0.0",
-	"description": "Tracks todos you complete over time and shows your points.",
+	"description": "Track your to-do progress over time. Tag checklist items with #pN points and project tags, then view a color-coded chart of points completed by day, week, or month.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"release": "node scripts/release.js"
 	},
 	"keywords": [],
-	"author": "",
+	"author": "Paul Q. Peters",
 	"license": "MIT",
 	"devDependencies": {
 		"@codemirror/state": "^6.7.6",

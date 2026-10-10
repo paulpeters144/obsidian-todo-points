@@ -3,7 +3,8 @@
 	"name": "Todo Points",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Simple todos from markdown lists with #pN point tags and project tags, plus a project-stacked graph of points completed by day, week, or month.",
-	"author": "Your Name",
+	"description": "Track your to-do progress over time. Tag checklist items with #pN points and project tags, then view a color-coded chart of points completed by day, week, or month.",
+	"author": "Paul Q. Peters",
+	"authorUrl": "https://github.com/paulpeters144",
 	"isDesktopOnly": false
 }
