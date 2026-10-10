@@ -1,4 +1,5 @@
 import { Plugin } from "obsidian";
+import { hasTasks } from "./access.tasks";
 
 export interface VaultFileSnapshot {
 	path: string;
@@ -25,10 +26,12 @@ export class VaultAccess {
 			.filter((f) => this.inFolder(f.path, folder));
 		const snapshots: VaultFileSnapshot[] = [];
 		for (const file of files) {
+			const content = await this.plugin.app.vault.cachedRead(file);
+			if (!hasTasks(content)) continue;
 			snapshots.push({
 				path: file.path,
 				mtime: file.stat.mtime,
-				content: await this.plugin.app.vault.cachedRead(file),
+				content,
 			});
 		}
 		return snapshots;

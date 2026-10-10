@@ -9,8 +9,8 @@ An Obsidian community plugin written in TypeScript. It extends Obsidian's
 layers (client view → adapter → manager → access); see Project layout below.
 
 This plugin is a read-only dashboard. It reads todos from markdown checkbox
-lists in a folder of the vault (default `example-lists/`, configurable in
-settings) and shows a canvas bar chart of points completed by day (last 7),
+lists anywhere in the vault (by default the whole vault; a folder can be
+configured in settings) and shows a canvas bar chart of points completed by day (last 7),
 week (last 8), or month (last 6). Points come from a `#pN` tag anywhere in
 the task line (e.g. `- [ ] Fix bug #p5` is worth 5 points; any non-negative
 integer is allowed). These `#pN` tags are highlighted in a soft green both in

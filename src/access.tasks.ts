@@ -87,6 +87,10 @@ function parseDate(text: string): number | null {
 	return null;
 }
 
+export function hasTasks(content: string): boolean {
+	return content.split("\n").some((line) => TASK_RE.test(line));
+}
+
 export function parseTasks(files: VaultFileSnapshot[]): TaskItem[] {
 	const tasks: TaskItem[] = [];
 	for (const file of files) {

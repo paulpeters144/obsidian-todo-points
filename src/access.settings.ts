@@ -5,7 +5,7 @@ export interface TodoPointsSettings {
 }
 
 export const DEFAULT_SETTINGS: TodoPointsSettings = {
-	listFolder: "example-lists",
+	listFolder: "",
 };
 
 export class SettingsAccess {

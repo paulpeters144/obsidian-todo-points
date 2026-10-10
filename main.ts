@@ -80,7 +80,7 @@ function appEventToClientUpdate(event: AppEvent): ClientUpdate {
 
 export default class TodoPointsPlugin extends Plugin {
 	private appManager!: AppManager;
-	private listFolder = "example-lists";
+	private listFolder = "";
 
 	async onload() {
 		this.appManager = new AppManager({
@@ -183,11 +183,11 @@ class TodoPointsSettingTab extends PluginSettingTab {
 		return [
 			{
 				name: "Lists folder",
-				desc: "Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks.",
+				desc: "Folder of markdown lists to read todos from. Leave empty to scan the entire vault. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks.",
 				control: {
 					type: "folder",
 					key: "listFolder",
-					placeholder: "example-lists",
+					placeholder: "(entire vault)",
 				},
 			},
 		];
@@ -211,11 +211,11 @@ class TodoPointsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Lists folder")
 			.setDesc(
-				"Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks."
+				"Folder of markdown lists to read todos from. Leave empty to scan the entire vault. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks."
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("example-lists")
+					.setPlaceholder("(entire vault)")
 					.setValue(this.plugin.getListFolder())
 					.onChange(async (value) => {
 						await this.plugin.setListFolder(value.trim());

@@ -28,7 +28,7 @@ Obsidian's native checkboxes.
 ## Usage
 
 1. In **Settings → Todo Points**, choose the folder that holds your todo lists
-   (default `example-lists/`).
+   (leave empty to scan the entire vault).
 2. Write checkbox lists with a date header above each group of tasks:
 
    ```markdown
