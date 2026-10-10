@@ -16,7 +16,13 @@ the task line (e.g. `- [ ] Fix bug #p5` is worth 5 points; any non-negative
 integer is allowed). These `#pN` tags are highlighted in a soft green both in
 the editor (via a CodeMirror `ViewPlugin` + `MatchDecorator`) and in reading
 view (via a Markdown post processor), styled by the `.todo-points-tag` class
-in `styles.css`. A completed task is a `[x]` checkbox. The completion day
+in `styles.css`. Any other `#tag` on the task line (e.g. `#house`, `#game`)
+names a project: a task's points count toward each of its project tags, and
+tasks without one fall into `other`. Each chart bar is stacked by project
+(colors are derived from the project name) with a legend of per-project
+totals for the visible period; clicking a legend item filters the chart to
+that project, and clicking it again (or `all`) restores the stacked view. A
+completed task is a `[x]` checkbox. The completion day
 comes from a date (containing a year, month, and day) on a line above the
 task; supported formats include `2026-10-10`, `10/10/2026`, `10-10-2026`,
 `10.10.2026`, `October 10, 2026`, and `10 October 2026` (with optional

@@ -3,7 +3,7 @@
 	"name": "Todo Points",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Simple todos from markdown lists with #pN point tags and a graph of points completed by day, week, or month.",
+	"description": "Simple todos from markdown lists with #pN point tags and project tags, plus a project-stacked graph of points completed by day, week, or month.",
 	"author": "Your Name",
 	"isDesktopOnly": false
 }

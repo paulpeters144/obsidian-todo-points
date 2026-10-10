@@ -22,6 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TASK_RE = /^(\s*[-*]\s+)\[( |x|X)\]\s+(.*)$/;
 const POINTS_RE = /#p(\d+)\b/i;
 const TAG_RE = /#p\d+\b/gi;
+const ALL_TAGS_RE = /#([\w][\w/-]*)/g;
 
 const MONTHS: Record<string, number> = {
 	jan: 1, january: 1,
@@ -42,6 +43,7 @@ interface TaskItem {
 	filePath: string;
 	line: number;
 	points: number;
+	projects: string[];
 	done: boolean;
 	completedAt: number | null;
 }
@@ -113,10 +115,30 @@ function parseDate(text: string): number | null {
 	return null;
 }
 
+interface BucketSegment {
+	project: string;
+	value: number;
+}
+
 interface Bucket {
 	label: string;
 	total: number;
 	isCurrent: boolean;
+	segments: BucketSegment[];
+}
+
+interface ChartData {
+	buckets: Bucket[];
+	projects: { name: string; total: number }[];
+}
+
+function projectColor(project: string): string {
+	if (project === "other") return "hsl(0, 0%, 55%)";
+	let h = 0;
+	for (let i = 0; i < project.length; i++) {
+		h = (h * 31 + project.charCodeAt(i)) >>> 0;
+	}
+	return `hsl(${h % 360}, 65%, 55%)`;
 }
 
 const tagDecorator = new MatchDecorator({
@@ -229,17 +251,24 @@ export default class TodoPointsPlugin extends Plugin {
 					if (d !== null) currentDate = d;
 					return;
 				}
-				const body = m[3];
-				const done = m[2].toLowerCase() === "x";
-				const pm = body.match(POINTS_RE);
-				const points = pm ? parseInt(pm[1], 10) : 0;
-				tasks.push({
-					filePath: file.path,
-					line: i,
-					points,
-					done,
-					completedAt: done ? currentDate ?? file.stat.mtime : null,
-				});
+			const body = m[3];
+			const done = m[2].toLowerCase() === "x";
+			const pm = body.match(POINTS_RE);
+			const points = pm ? parseInt(pm[1], 10) : 0;
+			const projects: string[] = [];
+			for (const tag of body.match(ALL_TAGS_RE) ?? []) {
+				const name = tag.slice(1).toLowerCase();
+				if (/^p\d+$/i.test(name)) continue;
+				if (!projects.includes(name)) projects.push(name);
+			}
+			tasks.push({
+				filePath: file.path,
+				line: i,
+				points,
+				projects,
+				done,
+				completedAt: done ? currentDate ?? file.stat.mtime : null,
+			});
 			});
 		}
 		this.tasks = tasks;
@@ -260,18 +289,24 @@ export default class TodoPointsPlugin extends Plugin {
 			.reduce((sum, t) => sum + t.points, 0);
 	}
 
-	buckets(period: Period): Bucket[] {
+	chartData(period: Period): ChartData {
 		const now = Date.now();
-		const buckets: Bucket[] = [];
+		const ranges: {
+			label: string;
+			start: number;
+			end: number;
+			isCurrent: boolean;
+		}[] = [];
 		if (period === "day") {
 			const today = startOfDay(now);
 			for (let i = 6; i >= 0; i--) {
 				const start = today - i * DAY_MS;
-				buckets.push({
+				ranges.push({
 					label: new Date(start).toLocaleDateString(undefined, {
 						weekday: "short",
 					}),
-					total: this.pointsBetween(start, start + DAY_MS),
+					start,
+					end: start + DAY_MS,
 					isCurrent: i === 0,
 				});
 			}
@@ -279,18 +314,18 @@ export default class TodoPointsPlugin extends Plugin {
 			const thisWeek = startOfWeek(now);
 			for (let i = 7; i >= 0; i--) {
 				const start = thisWeek - i * 7 * DAY_MS;
-				buckets.push({
+				ranges.push({
 					label: new Date(start).toLocaleDateString(undefined, {
 						month: "short",
 						day: "numeric",
 					}),
-					total: this.pointsBetween(start, start + 7 * DAY_MS),
+					start,
+					end: start + 7 * DAY_MS,
 					isCurrent: i === 0,
 				});
 			}
 		} else {
-			const thisMonth = startOfMonth(now);
-			const d = new Date(thisMonth);
+			const d = new Date(startOfMonth(now));
 			for (let i = 5; i >= 0; i--) {
 				const start = new Date(
 					d.getFullYear(),
@@ -302,16 +337,70 @@ export default class TodoPointsPlugin extends Plugin {
 					d.getMonth() - i + 1,
 					1
 				).getTime();
-				buckets.push({
+				ranges.push({
 					label: new Date(start).toLocaleDateString(undefined, {
 						month: "short",
 					}),
-					total: this.pointsBetween(start, end),
+					start,
+					end,
 					isCurrent: i === 0,
 				});
 			}
 		}
-		return buckets;
+
+		const perRange = ranges.map(() => new Map<string, number>());
+		const projectTotals = new Map<string, number>();
+		for (const t of this.doneTasks()) {
+			const at = t.completedAt;
+			if (at === null) continue;
+			ranges.forEach((r, i) => {
+				if (at >= r.start && at < r.end) {
+					const projects =
+						t.projects.length > 0 ? t.projects : ["other"];
+					for (const p of projects) {
+						perRange[i].set(
+							p,
+							(perRange[i].get(p) ?? 0) + t.points
+						);
+						projectTotals.set(
+							p,
+							(projectTotals.get(p) ?? 0) + t.points
+						);
+					}
+				}
+			});
+		}
+
+		const order = [...projectTotals.keys()].sort((a, b) => {
+			if (a === "other") return 1;
+			if (b === "other") return -1;
+			return (
+				(projectTotals.get(b) ?? 0) - (projectTotals.get(a) ?? 0) ||
+				a.localeCompare(b)
+			);
+		});
+
+		const buckets = ranges.map((r, i) => {
+			const segments = order
+				.map((project) => ({
+					project,
+					value: perRange[i].get(project) ?? 0,
+				}))
+				.filter((s) => s.value > 0);
+			return {
+				label: r.label,
+				total: segments.reduce((sum, s) => sum + s.value, 0),
+				isCurrent: r.isCurrent,
+				segments,
+			};
+		});
+
+		const projects = order.map((name) => ({
+			name,
+			total: projectTotals.get(name) ?? 0,
+		}));
+
+		return { buckets, projects };
 	}
 
 	refreshViews() {
@@ -327,6 +416,7 @@ export default class TodoPointsPlugin extends Plugin {
 class TodoPointsView extends ItemView {
 	plugin: TodoPointsPlugin;
 	private period: Period = "day";
+	private selectedProject: string | null = null;
 	private canvas: HTMLCanvasElement | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 
@@ -399,6 +489,50 @@ class TodoPointsView extends ItemView {
 
 		const chartWrap = parent.createDiv({ cls: "todo-points-chart" });
 		this.canvas = chartWrap.createEl("canvas");
+
+		const { projects } = this.plugin.chartData(this.period);
+		if (
+			this.selectedProject &&
+			!projects.some((p) => p.name === this.selectedProject)
+		) {
+			projects.push({ name: this.selectedProject, total: 0 });
+		}
+		if (projects.length > 0) {
+			const legend = chartWrap.createDiv({ cls: "todo-points-legend" });
+			const allTotal = projects.reduce((sum, p) => sum + p.total, 0);
+			const items = [
+				{
+					name: null as string | null,
+					label: "all",
+					total: allTotal,
+					color: "var(--interactive-accent)",
+				},
+			].concat(
+				projects.map((p) => ({
+					name: p.name as string | null,
+					label: p.name,
+					total: p.total,
+					color: projectColor(p.name),
+				}))
+			);
+			for (const it of items) {
+				const item = legend.createDiv({
+					cls:
+						"todo-points-legend-item" +
+						(this.selectedProject === it.name ? " is-active" : ""),
+				});
+				item.createSpan({
+					cls: "todo-points-legend-dot",
+				}).style.backgroundColor = it.color;
+				item.createSpan({ text: `${it.label} · ${it.total}` });
+				item.addEventListener("click", () => {
+					this.selectedProject =
+						this.selectedProject === it.name ? null : it.name;
+					this.render();
+				});
+			}
+		}
+
 		window.requestAnimationFrame(() => this.drawChart());
 	}
 
@@ -436,8 +570,14 @@ class TodoPointsView extends ItemView {
 		const faint = css.getPropertyValue("--text-faint").trim() || "#666666";
 		const fontFamily = css.getPropertyValue("--font-interface").trim();
 
-		const data = this.plugin.buckets(this.period);
-		const max = Math.max(...data.map((b) => b.total), 1);
+		const data = this.plugin.chartData(this.period).buckets;
+		const selected = this.selectedProject;
+		const totals = data.map((b) =>
+			selected
+				? b.segments.find((s) => s.project === selected)?.value ?? 0
+				: b.total
+		);
+		const max = Math.max(...totals, 1);
 
 		const padLeft = 6;
 		const padRight = 6;
@@ -461,23 +601,61 @@ class TodoPointsView extends ItemView {
 		ctx.textAlign = "center";
 
 		data.forEach((b, i) => {
+			const total = totals[i];
 			const cx = padLeft + slot * i + slot / 2;
 			const barHeight = Math.max(
-				b.total > 0 ? 3 : 0,
-				(b.total / max) * chartHeight
+				total > 0 ? 3 : 0,
+				(total / max) * chartHeight
 			);
 			const y = baseY - barHeight;
 
 			if (barHeight > 0) {
-				ctx.fillStyle = accent;
 				ctx.globalAlpha = b.isCurrent ? 1 : 0.55;
-				this.roundRect(ctx, cx - barWidth / 2, y, barWidth, barHeight, 3);
-				ctx.fill();
+				if (selected) {
+					ctx.fillStyle = projectColor(selected);
+					this.roundRect(
+						ctx,
+						cx - barWidth / 2,
+						y,
+						barWidth,
+						barHeight,
+						3
+					);
+					ctx.fill();
+				} else {
+					let yCursor = baseY;
+					b.segments.forEach((seg, j) => {
+						const segHeight = Math.max(
+							(seg.value / total) * barHeight,
+							1
+						);
+						yCursor -= segHeight;
+						ctx.fillStyle = projectColor(seg.project);
+						if (j === b.segments.length - 1) {
+							this.roundRect(
+								ctx,
+								cx - barWidth / 2,
+								yCursor,
+								barWidth,
+								segHeight,
+								3
+							);
+							ctx.fill();
+						} else {
+							ctx.fillRect(
+								cx - barWidth / 2,
+								yCursor,
+								barWidth,
+								segHeight
+							);
+						}
+					});
+				}
 				ctx.globalAlpha = 1;
 			}
 
 			ctx.fillStyle = muted;
-			ctx.fillText(String(b.total), cx, y - 5);
+			ctx.fillText(String(total), cx, y - 5);
 			ctx.fillStyle = b.isCurrent ? accent : faint;
 			ctx.fillText(b.label, cx, baseY + 14);
 		});
@@ -519,7 +697,7 @@ class TodoPointsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Lists folder")
 			.setDesc(
-				"Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). A date (year, month, and day) on a line above a list sets the completion day for its tasks."
+				"Folder of markdown lists to read todos from. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks."
 			)
 			.addText((text) =>
 				text
