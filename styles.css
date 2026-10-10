@@ -1,0 +1,76 @@
+.todo-points-container {
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.todo-points-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.todo-points-header h4 {
+	margin: 0;
+}
+
+.todo-points-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.todo-points-cards {
+	display: flex;
+	gap: 8px;
+}
+
+.todo-points-card {
+	flex: 1;
+	background: var(--background-secondary);
+	border-radius: 8px;
+	padding: 10px 6px;
+	text-align: center;
+}
+
+.todo-points-card-value {
+	font-size: 20px;
+	font-weight: 700;
+	color: var(--interactive-accent);
+}
+
+.todo-points-card-label {
+	font-size: 11px;
+	color: var(--text-muted);
+}
+
+.todo-points-periods {
+	display: flex;
+	gap: 6px;
+}
+
+.todo-points-period {
+	flex: 1;
+	padding: 3px 0;
+	border-radius: 6px;
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	box-shadow: none;
+	border: none;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.todo-points-period.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.todo-points-chart {
+	width: 100%;
+}
+
+.todo-points-chart canvas {
+	display: block;
+}

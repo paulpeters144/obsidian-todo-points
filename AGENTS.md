@@ -8,12 +8,25 @@ An Obsidian community plugin written in TypeScript. It extends Obsidian's
 `Plugin` base class from the `obsidian` package. The source of truth is
 `main.ts`; everything else is build config or metadata.
 
-This plugin tracks todos that the user completes over time and shows a running
-points total. Data is persisted with `loadData()`/`saveData()`.
+This plugin is a read-only dashboard. It reads todos from markdown checkbox
+lists in a folder of the vault (default `example-lists/`, configurable in
+settings) and shows a canvas bar chart of points completed by day (last 7),
+week (last 8), or month (last 6). Points come from a `p:N` token anywhere in
+the task line (e.g. `- [ ] Fix bug p:5` is worth 5 points; any non-negative
+integer is allowed). A completed task is a `[x]` checkbox. The completion day
+comes from a date (containing a year, month, and day) on a line above the
+task; supported formats include `2026-10-10`, `10/10/2026`, `10-10-2026`,
+`10.10.2026`, `October 10, 2026`, and `10 October 2026` (with optional
+ordinals). Tasks above the first date fall back to the file mtime. The plugin
+never edits markdown: users manage tasks with Obsidian's native checkboxes.
+Only the folder setting is persisted with `loadData()`/`saveData()`.
 
 ## Project layout
 
 - `main.ts` — plugin entry point. Exports a default class extending `Plugin`.
+  Also contains the markdown task scanner, the `ItemView` (stats cards +
+  period toggle + canvas chart), and the settings tab.
+- `styles.css` — view styles, loaded automatically by Obsidian.
 - `main.js` — generated bundle (do not edit; produced by esbuild).
 - `manifest.json` — plugin metadata (id, name, version, minAppVersion, ...).
 - `versions.json` — maps plugin versions to minimum Obsidian versions.

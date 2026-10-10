@@ -3,7 +3,7 @@
 	"name": "Todo Points",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Tracks todos you complete over time and shows your points.",
+	"description": "Simple todos from markdown lists with points (p:N) and a graph of points completed by day, week, or month.",
 	"author": "Your Name",
 	"isDesktopOnly": false
 }
