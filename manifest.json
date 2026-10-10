@@ -1,0 +1,9 @@
+{
+	"id": "todo-points",
+	"name": "Todo Points",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Tracks todos you complete over time and shows your points.",
+	"author": "Your Name",
+	"isDesktopOnly": false
+}
