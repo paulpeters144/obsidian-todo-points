@@ -1,6 +1,6 @@
 {
 	"name": "todo-points",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Track your to-do progress over time. Tag checklist items with #pN points and project tags, then view a color-coded chart of points completed by day, week, or month.",
 	"main": "main.js",
 	"scripts": {
