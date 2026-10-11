@@ -1,10 +1,4 @@
-import {
-	App,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	SettingDefinitionItem,
-} from "obsidian";
+import { App, Plugin } from "obsidian";
 import {
 	Decoration,
 	DecorationSet,
@@ -13,7 +7,6 @@ import {
 	ViewPlugin,
 	ViewUpdate,
 } from "@codemirror/view";
-import { SettingsAccess } from "./src/access.settings";
 import { VaultAccess } from "./src/access.vault";
 import {
 	AppEvent,
@@ -80,19 +73,16 @@ function appEventToClientUpdate(event: AppEvent): ClientUpdate {
 
 export default class TodoPointsPlugin extends Plugin {
 	private appManager!: AppManager;
-	private listFolder = "";
 
 	async onload() {
 		this.appManager = new AppManager({
-			settingsAccess: new SettingsAccess(this),
 			vaultAccess: new VaultAccess(this),
 		});
 		this.appManager.onEvent((event) => {
 			this.broadcast(appEventToClientUpdate(event));
 		});
 
-		const ready = await this.appManager.dispatch({ type: "init" });
-		if (ready.type === "ready") this.listFolder = ready.folder;
+		await this.appManager.dispatch({ type: "init" });
 
 		this.registerView(
 			VIEW_TYPE_TODO_POINTS,
@@ -111,8 +101,6 @@ export default class TodoPointsPlugin extends Plugin {
 			name: "Open dashboard",
 			callback: () => this.activateView(),
 		});
-
-		this.addSettingTab(new TodoPointsSettingTab(this.app, this));
 
 		this.registerEditorExtension(tagHighlighter);
 
@@ -143,18 +131,6 @@ export default class TodoPointsPlugin extends Plugin {
 		}
 	}
 
-	getListFolder(): string {
-		return this.listFolder;
-	}
-
-	async setListFolder(folder: string): Promise<void> {
-		const response = await this.appManager.dispatch({
-			type: "setFolder",
-			folder,
-		});
-		if (response.type === "folderSaved") this.listFolder = response.folder;
-	}
-
 	async activateView() {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(VIEW_TYPE_TODO_POINTS)[0];
@@ -168,58 +144,5 @@ export default class TodoPointsPlugin extends Plugin {
 			leaf = rightLeaf;
 		}
 		await workspace.revealLeaf(leaf);
-	}
-}
-
-class TodoPointsSettingTab extends PluginSettingTab {
-	plugin: TodoPointsPlugin;
-
-	constructor(app: App, plugin: TodoPointsPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	getSettingDefinitions(): SettingDefinitionItem[] {
-		return [
-			{
-				name: "Lists folder",
-				desc: "Folder of markdown lists to read todos from. Leave empty to scan the entire vault. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks.",
-				control: {
-					type: "folder",
-					key: "listFolder",
-					placeholder: "(entire vault)",
-				},
-			},
-		];
-	}
-
-	getControlValue(key: string): unknown {
-		if (key === "listFolder") return this.plugin.getListFolder();
-		return undefined;
-	}
-
-	setControlValue(key: string, value: unknown): void | Promise<void> {
-		if (key === "listFolder") {
-			return this.plugin.setListFolder(String(value).trim());
-		}
-	}
-
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Lists folder")
-			.setDesc(
-				"Folder of markdown lists to read todos from. Leave empty to scan the entire vault. Tasks are checkbox lines; points come from a #pN tag anywhere in the line (e.g. #p5 = 5 points). Any other #tag on the line (e.g. #house, #game) names a project the points count toward. A date (year, month, and day) on a line above a list sets the completion day for its tasks."
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder("(entire vault)")
-					.setValue(this.plugin.getListFolder())
-					.onChange(async (value) => {
-						await this.plugin.setListFolder(value.trim());
-					})
-			);
 	}
 }

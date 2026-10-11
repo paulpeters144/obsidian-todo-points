@@ -90,7 +90,7 @@ function parseDate(text: string): number | null {
 function parseFileNameDate(path: string): number | null {
 	const base = path.split(/[\\/]/).pop() ?? path;
 	const name = base.replace(/\.md$/i, "");
-	const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
+	const compact = name.match(/\b(\d{4})(\d{2})(\d{2})\b/);
 	if (compact) {
 		return toTimestamp(
 			Number(compact[1]),
@@ -102,14 +102,15 @@ function parseFileNameDate(path: string): number | null {
 }
 
 export function hasTasks(content: string): boolean {
-	return content.split("\n").some((line) => TASK_RE.test(line));
+	return content.split(/\r?\n/).some((line) => TASK_RE.test(line));
 }
 
 export function parseTasks(files: VaultFileSnapshot[]): TaskItem[] {
 	const tasks: TaskItem[] = [];
 	for (const file of files) {
 		const fileDate = parseFileNameDate(file.path);
-		const lines = file.content.split("\n");
+		const content = file.content.replace(/^\uFEFF/, "");
+		const lines = content.split(/\r?\n/);
 		let currentDate: number | null = null;
 		lines.forEach((raw, i) => {
 			const m = raw.match(TASK_RE);
@@ -134,7 +135,7 @@ export function parseTasks(files: VaultFileSnapshot[]): TaskItem[] {
 				points,
 				projects,
 				done,
-				completedAt: done ? currentDate ?? fileDate ?? file.mtime : null,
+				completedAt: done ? currentDate ?? fileDate : null,
 			});
 		});
 	}

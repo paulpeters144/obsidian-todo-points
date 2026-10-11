@@ -1,8 +1,3 @@
-import {
-	DEFAULT_SETTINGS,
-	SettingsAccess,
-	TodoPointsSettings,
-} from "./access.settings";
 import { VaultAccess } from "./access.vault";
 import {
 	DAY_MS,
@@ -41,28 +36,20 @@ export interface Stats {
 
 export type AppRequest =
 	| { type: "init" }
-	| { type: "getChart"; period: Period }
-	| { type: "setFolder"; folder: string };
+	| { type: "getChart"; period: Period };
 
 export type AppResponse =
-	| { type: "ready"; folder: string }
-	| { type: "chart"; stats: Stats; chart: ChartData }
-	| { type: "folderSaved"; folder: string };
+	| { type: "ready" }
+	| { type: "chart"; stats: Stats; chart: ChartData };
 
 export type AppEvent = { type: "dataChanged" };
 
 export class AppManager {
-	private settingsAccess: SettingsAccess;
 	private vaultAccess: VaultAccess;
-	private settings: TodoPointsSettings = DEFAULT_SETTINGS;
 	private tasks: TaskItem[] = [];
 	private listeners: ((event: AppEvent) => void)[] = [];
 
-	constructor(deps: {
-		settingsAccess: SettingsAccess;
-		vaultAccess: VaultAccess;
-	}) {
-		this.settingsAccess = deps.settingsAccess;
+	constructor(deps: { vaultAccess: VaultAccess }) {
 		this.vaultAccess = deps.vaultAccess;
 		this.vaultAccess.onChange(() => {
 			void this.rescan();
@@ -80,9 +67,8 @@ export class AppManager {
 	async dispatch(request: AppRequest): Promise<AppResponse> {
 		switch (request.type) {
 			case "init": {
-				this.settings = await this.settingsAccess.load();
 				await this.rescan();
-				return { type: "ready", folder: this.settings.listFolder };
+				return { type: "ready" };
 			}
 			case "getChart":
 				return {
@@ -90,22 +76,11 @@ export class AppManager {
 					stats: this.computeStats(),
 					chart: this.chartData(request.period),
 				};
-			case "setFolder": {
-				this.settings = {
-					...this.settings,
-					listFolder: request.folder,
-				};
-				await this.settingsAccess.save(this.settings);
-				await this.rescan();
-				return { type: "folderSaved", folder: this.settings.listFolder };
-			}
 		}
 	}
 
 	private async rescan(): Promise<void> {
-		const files = await this.vaultAccess.readMarkdownFolder(
-			this.settings.listFolder
-		);
+		const files = await this.vaultAccess.readMarkdownFiles();
 		this.tasks = parseTasks(files);
 		this.emit({ type: "dataChanged" });
 	}

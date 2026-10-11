@@ -3,7 +3,6 @@ import { hasTasks } from "./access.tasks";
 
 export interface VaultFileSnapshot {
 	path: string;
-	mtime: number;
 	content: string;
 }
 
@@ -14,23 +13,14 @@ export class VaultAccess {
 		this.plugin = plugin;
 	}
 
-	private inFolder(path: string, folder: string): boolean {
-		const trimmed = folder.replace(/^\/+|\/+$/g, "");
-		if (trimmed === "") return true;
-		return path === trimmed || path.startsWith(trimmed + "/");
-	}
-
-	async readMarkdownFolder(folder: string): Promise<VaultFileSnapshot[]> {
-		const files = this.plugin.app.vault
-			.getMarkdownFiles()
-			.filter((f) => this.inFolder(f.path, folder));
+	async readMarkdownFiles(): Promise<VaultFileSnapshot[]> {
+		const files = this.plugin.app.vault.getMarkdownFiles();
 		const snapshots: VaultFileSnapshot[] = [];
 		for (const file of files) {
 			const content = await this.plugin.app.vault.cachedRead(file);
 			if (!hasTasks(content)) continue;
 			snapshots.push({
 				path: file.path,
-				mtime: file.stat.mtime,
 				content,
 			});
 		}
