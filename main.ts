@@ -47,7 +47,11 @@ const tagHighlighter = ViewPlugin.fromClass(TagHighlighter, {
 function toAppRequest(message: ClientMessage): AppRequest {
 	switch (message.type) {
 		case "query":
-			return { type: "getChart", period: message.period };
+			return {
+				type: "getChart",
+				period: message.period,
+				offset: message.offset,
+			};
 	}
 }
 

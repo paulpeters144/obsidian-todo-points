@@ -1,9 +1,13 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, setIcon, WorkspaceLeaf } from "obsidian";
 import { ChartData, Period, Stats } from "./manager.app";
 
 export const VIEW_TYPE_TODO_POINTS = "todo-points-view";
 
-export type ClientMessage = { type: "query"; period: Period };
+export type ClientMessage = {
+	type: "query";
+	period: Period;
+	offset: number;
+};
 
 export type ClientUpdate =
 	| { type: "render"; stats: Stats; chart: ChartData }
@@ -25,9 +29,10 @@ function projectColor(project: string): string {
 export class TodoPointsView extends ItemView {
 	private send: SendClientMessage;
 	private period: Period = "day";
+	private offset = 0;
 	private selectedProject: string | null = null;
 	private stats: Stats = { today: 0, week: 0, month: 0 };
-	private chart: ChartData = { buckets: [], projects: [] };
+	private chart: ChartData = { buckets: [], projects: [], rangeLabel: "" };
 	private canvas: HTMLCanvasElement | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 
@@ -51,7 +56,7 @@ export class TodoPointsView extends ItemView {
 	async onOpen() {
 		this.resizeObserver = new ResizeObserver(() => this.drawChart());
 		this.resizeObserver.observe(this.contentEl);
-		await this.ask({ type: "query", period: this.period });
+		await this.ask({ type: "query", period: this.period, offset: this.offset });
 	}
 
 	async onClose() {
@@ -66,7 +71,11 @@ export class TodoPointsView extends ItemView {
 
 	receive(update: ClientUpdate) {
 		if (update.type === "refresh") {
-			void this.ask({ type: "query", period: this.period });
+			void this.ask({
+				type: "query",
+				period: this.period,
+				offset: this.offset,
+			});
 			return;
 		}
 		this.stats = update.stats;
@@ -107,9 +116,16 @@ export class TodoPointsView extends ItemView {
 			});
 			btn.addEventListener("click", () => {
 				this.period = opt.period;
-				void this.ask({ type: "query", period: this.period });
+				this.offset = 0;
+				void this.ask({
+					type: "query",
+					period: this.period,
+					offset: this.offset,
+				});
 			});
 		}
+
+		this.renderNav(parent);
 
 		const chartWrap = parent.createDiv({ cls: "todo-points-chart" });
 		this.canvas = chartWrap.createEl("canvas");
@@ -158,6 +174,41 @@ export class TodoPointsView extends ItemView {
 		}
 
 		window.requestAnimationFrame(() => this.drawChart());
+	}
+
+	private renderNav(parent: HTMLElement) {
+		const nav = parent.createDiv({ cls: "todo-points-nav" });
+
+		const prev = nav.createEl("button", { cls: "todo-points-nav-button" });
+		prev.setAttribute("aria-label", "Previous window");
+		setIcon(prev, "chevron-left");
+		prev.addEventListener("click", () => {
+			this.offset += 1;
+			void this.ask({
+				type: "query",
+				period: this.period,
+				offset: this.offset,
+			});
+		});
+
+		nav.createSpan({
+			cls: "todo-points-nav-label",
+			text: this.chart.rangeLabel,
+		});
+
+		const next = nav.createEl("button", { cls: "todo-points-nav-button" });
+		next.setAttribute("aria-label", "Next window");
+		setIcon(next, "chevron-right");
+		next.disabled = this.offset === 0;
+		next.addEventListener("click", () => {
+			if (this.offset === 0) return;
+			this.offset -= 1;
+			void this.ask({
+				type: "query",
+				period: this.period,
+				offset: this.offset,
+			});
+		});
 	}
 
 	private renderCard(parent: HTMLElement, label: string, value: number) {

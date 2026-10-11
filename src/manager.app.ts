@@ -26,6 +26,7 @@ export interface Bucket {
 export interface ChartData {
 	buckets: Bucket[];
 	projects: { name: string; total: number }[];
+	rangeLabel: string;
 }
 
 export interface Stats {
@@ -36,7 +37,7 @@ export interface Stats {
 
 export type AppRequest =
 	| { type: "init" }
-	| { type: "getChart"; period: Period };
+	| { type: "getChart"; period: Period; offset: number };
 
 export type AppResponse =
 	| { type: "ready" }
@@ -74,7 +75,7 @@ export class AppManager {
 				return {
 					type: "chart",
 					stats: this.computeStats(),
-					chart: this.chartData(request.period),
+					chart: this.chartData(request.period, request.offset),
 				};
 		}
 	}
@@ -98,7 +99,7 @@ export class AppManager {
 		};
 	}
 
-	private chartData(period: Period): ChartData {
+	private chartData(period: Period, offset: number): ChartData {
 		const now = Date.now();
 		const ranges: {
 			label: string;
@@ -107,7 +108,7 @@ export class AppManager {
 			isCurrent: boolean;
 		}[] = [];
 		if (period === "day") {
-			const today = startOfDay(now);
+			const today = startOfDay(now) - offset * 7 * DAY_MS;
 			for (let i = 6; i >= 0; i--) {
 				const start = today - i * DAY_MS;
 				ranges.push({
@@ -116,11 +117,11 @@ export class AppManager {
 					}),
 					start,
 					end: start + DAY_MS,
-					isCurrent: i === 0,
+					isCurrent: offset === 0 && i === 0,
 				});
 			}
 		} else if (period === "week") {
-			const thisWeek = startOfWeek(now);
+			const thisWeek = startOfWeek(now) - offset * 8 * 7 * DAY_MS;
 			for (let i = 7; i >= 0; i--) {
 				const start = thisWeek - i * 7 * DAY_MS;
 				ranges.push({
@@ -130,20 +131,25 @@ export class AppManager {
 					}),
 					start,
 					end: start + 7 * DAY_MS,
-					isCurrent: i === 0,
+					isCurrent: offset === 0 && i === 0,
 				});
 			}
 		} else {
 			const d = new Date(startOfMonth(now));
+			const anchor = new Date(
+				d.getFullYear(),
+				d.getMonth() - offset * 6,
+				1
+			);
 			for (let i = 5; i >= 0; i--) {
 				const start = new Date(
-					d.getFullYear(),
-					d.getMonth() - i,
+					anchor.getFullYear(),
+					anchor.getMonth() - i,
 					1
 				).getTime();
 				const end = new Date(
-					d.getFullYear(),
-					d.getMonth() - i + 1,
+					anchor.getFullYear(),
+					anchor.getMonth() - i + 1,
 					1
 				).getTime();
 				ranges.push({
@@ -152,7 +158,7 @@ export class AppManager {
 					}),
 					start,
 					end,
-					isCurrent: i === 0,
+					isCurrent: offset === 0 && i === 0,
 				});
 			}
 		}
@@ -209,6 +215,32 @@ export class AppManager {
 			total: projectTotals.get(name) ?? 0,
 		}));
 
-		return { buckets, projects };
+		const rangeLabel = this.rangeLabel(period, ranges);
+
+		return { buckets, projects, rangeLabel };
+	}
+
+	private rangeLabel(
+		period: Period,
+		ranges: { label: string; start: number; end: number }[]
+	): string {
+		const first = new Date(ranges[0].start);
+		if (period === "month") {
+			const last = new Date(ranges[ranges.length - 1].start);
+			const fmt = (d: Date) =>
+				d.toLocaleDateString(undefined, {
+					month: "short",
+					year: "numeric",
+				});
+			return `${fmt(first)} – ${fmt(last)}`;
+		}
+		const last = new Date(ranges[ranges.length - 1].end - DAY_MS);
+		const showYear =
+			first.getFullYear() !== new Date().getFullYear() ||
+			last.getFullYear() !== first.getFullYear();
+		const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+		if (showYear) opts.year = "numeric";
+		const fmt = (d: Date) => d.toLocaleDateString(undefined, opts);
+		return `${fmt(first)} – ${fmt(last)}`;
 	}
 }
